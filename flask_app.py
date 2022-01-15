@@ -1,9 +1,7 @@
-from calendar import c
 import os
-from urllib import request
 import numpy as np
 import pandas as pd
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, url_for, Markup
 from random import randrange
 import nltk
 nltk.download('vader_lexicon')
@@ -22,31 +20,28 @@ app = Flask(__name__)
 ## This function will be executed before any request comes
 @app.before_request
 def prepare_sentiment_quote_stash():
-    try:
-        global QUOTES
+    global QUOTES
+    
+    # Load the quote csv
+    QUOTES = pd.read_csv(os.path.join(BASEDIR, 'static', 'data', QOUTE_FILENAME))
+    
+    sia = SentimentIntensityAnalyzer()
+    
+    # Generate polarity scores or sentiment scores for each qoutes
+    all_compounds = []
+    for sentence in QUOTES['quote']:
+        polarity_score = sia.polarity_scores(sentence)
+        for val in sorted(polarity_score):
+            if val == 'compound':
+                all_compounds.append(val)
+                
+    # Add sentiment score in data as a new column
+    QUOTES['sentiment_score'] = all_compounds
+    
+    # Create ladder index
+    QUOTES = QUOTES.sort_values('sentiment_score')        
+    QUOTES['index'] = [idx for idx in range(0, len(QUOTES))]
         
-        # Load the quote csv
-        QUOTES = pd.read_csv(os.path.join(BASEDIR, 'static', 'data', QOUTE_FILENAME))
-        
-        sia = SentimentIntensityAnalyzer()
-        
-        # Generate polarity scores or sentiment scores for each qoutes
-        all_compounds = []
-        for sentence in QUOTES['quote']:
-            polarity_score = sia.polarity_scores(sentence)
-            for val in sorted(polarity_score):
-                if val == 'compound':
-                    all_compounds.append(val)
-                    
-        # Add sentiment score in data as a new column
-        QUOTES['sentiment_score'] = all_compounds
-        
-        # Create ladder index
-        QUOTES = QUOTES.sort_values('sentiment_srore')        
-        QUOTES['index'] = [idx for idx in range(0, len(QUOTES))]
-        
-    except Exception as e:
-        pass
     
     
 def get_a_quote(direction = None, current_index = None, max_index_val = 0):
@@ -118,18 +113,26 @@ def quote_me():
         quote = the_quote['quote']
         author = the_quote['author']
         cur_id = the_quote['index']
-        
-        return render_template("quote.html", quote=quote, author=author, cur_id=cur_id)
     
+        return render_template("quote.html", quote=quote, author=author, cur_id=cur_id)
     except Exception as e:
-        pass
+        return render_template("400.html", error_msg=e)
+
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
+
+
+@app.errorhandler(400)
+def bad_request(e):
+    return render_template('400.html'), 400
 
 
 ## This route can be used to check whether the application is responding or not
 @app.route('/health')
 def health():
     return f"{os.path.basename(BASEDIR).upper()} says: I am fine!"
-
 
 
 if __name__ == '__main__':
